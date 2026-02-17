@@ -22,7 +22,7 @@ import requests
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from scripts.feature_engineering import FeatureEngine
+from feature_engineering import FeatureEngine
 import pandas as pd
 
 # ---------------------------------------------------------------------------
@@ -1013,7 +1013,7 @@ class PredictionGenerator:
         """Lazy-init Firebase client (reuses upload_to_firebase.init_firebase)."""
         if not hasattr(self, '_firestore_db') or self._firestore_db is None:
             try:
-                from scripts.upload_to_firebase import init_firebase
+                from upload_to_firebase import init_firebase
                 self._firestore_db = init_firebase()
             except Exception as e:
                 logger.warning(f"Could not init Firebase for LKG: {e}")
