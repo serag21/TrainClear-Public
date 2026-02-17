@@ -1,0 +1,43 @@
+name: Update Train Predictions
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # Run every 5 minutes (max reliable speed)
+
+  workflow_dispatch:        # Manual trigger still enabled
+
+
+jobs:
+  update-predictions:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests pandas numpy scikit-learn firebase-admin
+      
+      - name: Create Firebase credentials file
+        run: |
+          echo "${{ secrets.FIREBASE_CREDENTIALS }}" | base64 --decode > serviceAccountKey.json
+      
+      - name: Generate predictions
+        run: |
+          python python/ml/scripts/generate_predictions.py
+      
+      - name: Upload to Firebase
+        env:
+          FIREBASE_CREDENTIALS_FILE: serviceAccountKey.json
+        run: |
+          python python/ml/scripts/upload_to_firebase.py
+      
+      - name: Remove credentials file
+        if: always()
+        run: |
+          rm -f serviceAccountKey.json
