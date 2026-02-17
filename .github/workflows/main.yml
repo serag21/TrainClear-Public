@@ -1,7 +1,7 @@
 name: Update Train Predictions
 on:
-  schedule:
-    - cron: '*/5 * * * *'   # Run every 5 minutes (max reliable speed)
+  #schedule:
+   # - cron: '*/5 * * * *'   # Run every 5 minutes (max reliable speed)
 
   workflow_dispatch:        # Manual trigger still enabled
 
