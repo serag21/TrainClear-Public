@@ -29,13 +29,13 @@ jobs:
       
       - name: Generate predictions
         run: |
-          python python/ml/scripts/generate_predictions.py
+          python generate_predictions.py
       
       - name: Upload to Firebase
         env:
           FIREBASE_CREDENTIALS_FILE: serviceAccountKey.json
         run: |
-          python python/ml/scripts/upload_to_firebase.py
+          python upload_to_firebase.py
       
       - name: Remove credentials file
         if: always()
