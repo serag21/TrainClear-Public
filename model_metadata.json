@@ -1,0 +1,62 @@
+{
+  "cross_validation": {
+    "folds": 5,
+    "scores": [
+      0.8110236220472441,
+      0.8015873015873016,
+      0.873015873015873,
+      0.8412698412698413,
+      0.7936507936507936
+    ],
+    "mean_accuracy": 0.8241094863142108,
+    "std_dev": 0.02930028344459062,
+    "min_accuracy": 0.7936507936507936,
+    "max_accuracy": 0.873015873015873
+  },
+  "classifier": {
+    "accuracy": 0.8661417322834646,
+    "precision": 0.8846153846153846,
+    "recall": 0.9484536082474226,
+    "f1_score": 0.9154228855721394,
+    "auc_roc": 0.8938144329896907,
+    "n_estimators": 100,
+    "max_depth": 12,
+    "min_samples_split": 5,
+    "min_samples_leaf": 2,
+    "class_weight": "balanced",
+    "sample_weights_used": true
+  },
+  "duration_regressor": {
+    "mae": 46.299340194311505,
+    "r2_score": -0.1807984244046985,
+    "n_estimators": 100,
+    "max_depth": 5,
+    "sample_weights_used": true
+  },
+  "version": "v2.0",
+  "trained_date": "2026-02-17T04:51:45.659297",
+  "feature_columns": [
+    "hour",
+    "day_of_week",
+    "is_weekday",
+    "is_weekend",
+    "is_holiday",
+    "is_freight_peak",
+    "is_peak_switching_hour",
+    "week_of_year",
+    "month",
+    "distance_to_brooklyn_yard_km",
+    "daily_train_count",
+    "freight_ratio",
+    "freight_peak_probability",
+    "crossing_id_encoded"
+  ],
+  "fixes_applied": [
+    "train_type_encoded excluded (target leakage)",
+    "zero-variance features removed",
+    "sample_weight passed to fit()",
+    "ID-based crossing mapping",
+    "corrected duration parsing",
+    "anti-leakage negative sampling"
+  ]
+}
