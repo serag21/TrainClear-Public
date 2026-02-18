@@ -90,7 +90,7 @@ def _should_upload(crossing_id, new_pred, prev_pred):
     return False
 
 
-def upload_predictions(predictions_file='python/ml/data/current_predictions.json'):
+def upload_predictions(predictions_file='current_predictions.json'):
     """Upload predictions to Firebase with change detection."""
 
     print("Uploading predictions to Firebase...")
