@@ -387,13 +387,13 @@ class PredictionGenerator:
         logger.info("Loading trained models...")
 
         try:
-            with open('python/ml/models/train_classifier.pkl', 'rb') as f:
+            with open('train_classifier.pkl', 'rb') as f:
                 self.classifier = pickle.load(f)
 
-            with open('python/ml/models/duration_regressor.pkl', 'rb') as f:
+            with open('duration_regressor.pkl', 'rb') as f:
                 self.duration_regressor = pickle.load(f)
 
-            with open('python/ml/models/label_encoders.pkl', 'rb') as f:
+            with open('label_encoders.pkl', 'rb') as f:
                 self.label_encoders = pickle.load(f)
 
             # Sanity check: verify classifier has expected class structure
@@ -863,7 +863,7 @@ class PredictionGenerator:
 
         # Load model metadata to get exact feature list
         if not hasattr(self, 'required_features'):
-            with open('python/ml/models/model_metadata.json', 'r') as f:
+            with open('model_metadata.json', 'r') as f:
                 metadata = json.load(f)
                 self.required_features = metadata['feature_columns']
 
@@ -1222,7 +1222,7 @@ class PredictionGenerator:
         print("="*60)
 
         # Load previous predictions for change-detection
-        output_file = 'python/ml/data/current_predictions.json'
+        output_file = 'current_predictions.json'
         previous_predictions = self._load_previous_predictions(output_file)
 
         # Load hysteresis state (persisted in Firestore across runs)
@@ -1430,7 +1430,7 @@ class PredictionGenerator:
         self._previous_predictions = predictions
         return predictions
 
-    def save_predictions(self, predictions, output_file='python/ml/data/current_predictions.json'):
+    def save_predictions(self, predictions, output_file='current_predictions.json'):
         """Save predictions to JSON file"""
         logger.info(f"Saving predictions to {output_file}")
 
