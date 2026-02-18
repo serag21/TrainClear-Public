@@ -18,11 +18,12 @@ import math
 import logging
 import time
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import requests
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from feature_engineering import FeatureEngine
+from scripts.feature_engineering import FeatureEngine
 import pandas as pd
 
 # ---------------------------------------------------------------------------
@@ -386,14 +387,20 @@ class PredictionGenerator:
         logger.info("Loading trained models...")
 
         try:
-            with open('train_classifier.pkl', 'rb') as f:
+            with open('python/ml/models/train_classifier.pkl', 'rb') as f:
                 self.classifier = pickle.load(f)
 
-            with open('duration_regressor.pkl', 'rb') as f:
+            with open('python/ml/models/duration_regressor.pkl', 'rb') as f:
                 self.duration_regressor = pickle.load(f)
 
-            with open('label_encoders.pkl', 'rb') as f:
+            with open('python/ml/models/label_encoders.pkl', 'rb') as f:
                 self.label_encoders = pickle.load(f)
+
+            # Sanity check: verify classifier has expected class structure
+            assert hasattr(self.classifier, 'classes_'), "Classifier missing classes_ attribute"
+            logger.info(f"Classifier classes: {self.classifier.classes_}")
+            # Expected: [0, 1] where 0=No Train, 1=Train Present
+            # predict_proba(X)[0][1] returns P(train_blocked)
 
             logger.info("Models loaded successfully")
         except FileNotFoundError:
@@ -838,7 +845,7 @@ class PredictionGenerator:
         Generate ML-based prediction for a crossing.
         """
         if timestamp is None:
-            timestamp = datetime.now()
+            timestamp = datetime.now(ZoneInfo('America/Los_Angeles'))
 
         # Extract features
         features = self.feature_engine.extract_all_features(
@@ -856,7 +863,7 @@ class PredictionGenerator:
 
         # Load model metadata to get exact feature list
         if not hasattr(self, 'required_features'):
-            with open('model_metadata.json', 'r') as f:
+            with open('python/ml/models/model_metadata.json', 'r') as f:
                 metadata = json.load(f)
                 self.required_features = metadata['feature_columns']
 
@@ -880,6 +887,7 @@ class PredictionGenerator:
         feature_df = feature_df[self.required_features]
 
         # Predict
+        # P(train_blocked) — class index 1 (classes_ = [0=No Train, 1=Train Present])
         probability = self.classifier.predict_proba(feature_df)[0][1]
         prediction = self.classifier.predict(feature_df)[0]
 
@@ -902,10 +910,9 @@ class PredictionGenerator:
             else:
                 confidence = 'LOW'
 
-            train_type = 'freight' if features['is_freight_peak'] else 'unknown'
-            explanation_parts = [
-                f"ML model predicts {probability:.0%} chance of train"
-            ]
+            train_type = 'freight'  # ML only runs for freight; Amtrak handles passenger
+            train_label = 'freight train'
+            explanation_notes = []
 
             # Brooklyn Yard proximity adjustment
             is_yard_zone = bool(features.get('is_within_yard_zone'))
@@ -913,7 +920,7 @@ class PredictionGenerator:
             if is_yard_zone:
                 if duration < 30:
                     duration *= 2  # switching operations take longer
-                    explanation_parts.append(
+                    explanation_notes.append(
                         "extended estimate (Brooklyn Yard switching zone)"
                     )
                 if train_stopped:
@@ -924,23 +931,45 @@ class PredictionGenerator:
             # Rain adjustment: increase duration by 15% when raining
             if features.get('is_raining'):
                 duration *= 1.15
-                explanation_parts.append("rain detected (expect delays)")
+                explanation_notes.append("rain detected (expect delays)")
 
             duration = round(duration, 1)
-            now = datetime.now()
+            now = datetime.now(ZoneInfo('America/Los_Angeles'))
+
+            # Build explanation with final adjusted duration
+            clear_time = now + timedelta(minutes=duration)
+            clear_time_str = clear_time.strftime('%I:%M %p').lstrip('0')
+            explanation_parts = [
+                f"{probability:.0%} chance of {train_label}; "
+                f"estimated ~{duration:.0f} min blockage "
+                f"(clear by ~{clear_time_str})"
+            ]
+            explanation_parts.extend(explanation_notes)
+
+            # ML status based on probability — no directional data available
+            if probability > 0.8:
+                ml_status = 'BLOCKING'
+            elif probability > 0.6:
+                ml_status = 'APPROACHING'
+            else:
+                ml_status = 'DETECTED'  # low-confidence freight signal
 
             return {
                 'source': 'ML_MODEL',
                 'data_source': 'ML_MODEL',
+                'status': ml_status,
                 'probability': round(probability, 2),
                 'confidence': confidence,
                 'duration_minutes': duration,
-                'predicted_clear_time': (
-                    now + timedelta(minutes=duration)
-                ).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                'predicted_clear_time': clear_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
                 'train_type': train_type,
+                'train_number': None,
+                'route_name': None,
+                'distance_miles': None,
+                'speed_mph': None,
+                'heading': None,
                 'is_freight_peak': features['is_freight_peak'],
-                'is_passenger_peak': features['is_passenger_peak'],
+                'is_passenger_peak': features.get('is_passenger_peak', 0),
                 'is_within_yard_zone': is_yard_zone,
                 'explanation': '; '.join(explanation_parts),
             }
@@ -1013,7 +1042,7 @@ class PredictionGenerator:
         """Lazy-init Firebase client (reuses upload_to_firebase.init_firebase)."""
         if not hasattr(self, '_firestore_db') or self._firestore_db is None:
             try:
-                from upload_to_firebase import init_firebase
+                from scripts.upload_to_firebase import init_firebase
                 self._firestore_db = init_firebase()
             except Exception as e:
                 logger.warning(f"Could not init Firebase for LKG: {e}")
@@ -1202,8 +1231,8 @@ class PredictionGenerator:
         # Fetch Amtrak data
         amtrak_trains = self.fetch_amtrak_trains()
 
-        # Get current timestamp
-        now = datetime.now()
+        # Get current timestamp in Portland local time
+        now = datetime.now(ZoneInfo('America/Los_Angeles'))
 
         predictions = {}
         detections = {}  # Store Amtrak detections for propagation
@@ -1228,11 +1257,13 @@ class PredictionGenerator:
                 raw_status = new_pred.get('status', 'CLEAR')
                 stable_status = self._apply_hysteresis(crossing_id, raw_status, hysteresis_state)
                 if stable_status != raw_status:
+                    logger.info(f"{crossing_id}: hysteresis held at {stable_status}, raw was {raw_status}")
                     new_pred['status'] = stable_status
-                    new_pred['explanation'] = (
-                        new_pred.get('explanation', '') +
-                        f' (held by stability filter; raw={raw_status})'
-                    )
+
+                # CLEAR status must never carry duration or predicted_clear_time
+                if new_pred['status'] == 'CLEAR':
+                    new_pred['duration_minutes'] = None
+                    new_pred['predicted_clear_time'] = None
 
                 # Change-detection: skip redundant updates
                 if self._is_redundant_update(crossing_id, new_pred, previous_predictions):
@@ -1266,11 +1297,13 @@ class PredictionGenerator:
                     raw_status = new_pred.get('status', 'CLEAR')
                     stable_status = self._apply_hysteresis(downstream_crossing, raw_status, hysteresis_state)
                     if stable_status != raw_status:
+                        logger.info(f"{downstream_crossing}: hysteresis held at {stable_status}, raw was {raw_status}")
                         new_pred['status'] = stable_status
-                        new_pred['explanation'] = (
-                            new_pred.get('explanation', '') +
-                            f' (held by stability filter; raw={raw_status})'
-                        )
+
+                    # CLEAR status must never carry duration or predicted_clear_time
+                    if new_pred['status'] == 'CLEAR':
+                        new_pred['duration_minutes'] = None
+                        new_pred['predicted_clear_time'] = None
 
                     if self._is_redundant_update(downstream_crossing, new_pred, previous_predictions):
                         prev = previous_predictions[downstream_crossing]
@@ -1291,15 +1324,8 @@ class PredictionGenerator:
 
             if ml_prediction and ml_prediction['probability'] > 0.5:
                 prob = ml_prediction['probability']
-                # 0.5-0.6: model says likely but script was previously
-                # ignoring this band.  Surface it as APPROACHING so
-                # users get early warning without a hard BLOCKING call.
-                if prob <= 0.6:
-                    ml_prediction['status'] = 'APPROACHING'
-                    ml_prediction['confidence'] = 'LOW'
-                    ml_prediction['explanation'] += (
-                        '; early warning (probability between 50-60%)'
-                    )
+                # Status already set by generate_ml_prediction():
+                #   >0.8 = BLOCKING, >0.6 = APPROACHING, 0.5-0.6 = DETECTED
 
                 print(f"   [ML]ML prediction: {prob:.0%} probability")
                 new_pred = {
@@ -1313,11 +1339,13 @@ class PredictionGenerator:
                 raw_status = new_pred.get('status', 'CLEAR')
                 stable_status = self._apply_hysteresis(crossing_id, raw_status, hysteresis_state)
                 if stable_status != raw_status:
+                    logger.info(f"{crossing_id}: hysteresis held at {stable_status}, raw was {raw_status}")
                     new_pred['status'] = stable_status
-                    new_pred['explanation'] = (
-                        new_pred.get('explanation', '') +
-                        f' (held by stability filter; raw={raw_status})'
-                    )
+
+                # CLEAR status must never carry duration or predicted_clear_time
+                if new_pred['status'] == 'CLEAR':
+                    new_pred['duration_minutes'] = None
+                    new_pred['predicted_clear_time'] = None
 
                 if self._is_redundant_update(crossing_id, new_pred, previous_predictions):
                     prev = previous_predictions[crossing_id]
@@ -1338,6 +1366,12 @@ class PredictionGenerator:
                     'status': 'CLEAR',
                     'train_number': None,
                     'route_name': None,
+                    'distance_miles': None,
+                    'speed_mph': None,
+                    'heading': None,
+                    'train_type': None,
+                    'predicted_clear_time': None,
+                    'duration_minutes': None,
                     'explanation': (
                         'No train activity detected or predicted at this time'
                     ),
@@ -1347,10 +1381,14 @@ class PredictionGenerator:
                 raw_status = 'CLEAR'
                 stable_status = self._apply_hysteresis(crossing_id, raw_status, hysteresis_state)
                 if stable_status != raw_status:
+                    logger.info(f"{crossing_id}: hysteresis held at {stable_status}, raw was {raw_status}")
                     new_pred['status'] = stable_status
-                    new_pred['explanation'] = (
-                        f'Train may still be present (held by stability filter; raw={raw_status})'
-                    )
+                    new_pred['explanation'] = 'Train may still be present'
+
+                # CLEAR status must never carry duration or predicted_clear_time
+                if new_pred['status'] == 'CLEAR':
+                    new_pred['duration_minutes'] = None
+                    new_pred['predicted_clear_time'] = None
 
                 # CLEAR -> CLEAR suppression
                 if self._is_redundant_update(crossing_id, new_pred, previous_predictions):
