@@ -386,13 +386,13 @@ class PredictionGenerator:
         logger.info("Loading trained models...")
 
         try:
-            with open('python/ml/models/train_classifier.pkl', 'rb') as f:
+            with open('train_classifier.pkl', 'rb') as f:
                 self.classifier = pickle.load(f)
 
-            with open('python/ml/models/duration_regressor.pkl', 'rb') as f:
+            with open('duration_regressor.pkl', 'rb') as f:
                 self.duration_regressor = pickle.load(f)
 
-            with open('python/ml/models/label_encoders.pkl', 'rb') as f:
+            with open('label_encoders.pkl', 'rb') as f:
                 self.label_encoders = pickle.load(f)
 
             logger.info("Models loaded successfully")
@@ -856,7 +856,7 @@ class PredictionGenerator:
 
         # Load model metadata to get exact feature list
         if not hasattr(self, 'required_features'):
-            with open('python/ml/models/model_metadata.json', 'r') as f:
+            with open('model_metadata.json', 'r') as f:
                 metadata = json.load(f)
                 self.required_features = metadata['feature_columns']
 
